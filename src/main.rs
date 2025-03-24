@@ -10,12 +10,38 @@ fn main() {
         input.clear();
         io::stdin().read_line(&mut input).expect("Failed to read line.");
         match input.as_str() {
-            "g\n" => break,
-            "q\n" => break,
+            "g\n" => {
+                get_write();
+                break
+            },
+            "q\n" => {
+                get_query();
+                break
+            },
             _ => println!("Please type either 'g' or 'q'"),
         };
     };
-    let c = &input[0..1];
-    println!("You typed '{c}'")
-
 }
+
+
+fn get_write() {
+    let mut input = String::new();
+    println!("Please input a scale");
+    loop {
+        input.clear();
+        io::stdin().read_line(&mut input).expect("Failed to read line.");
+        // println!("{:?}", input.trim().parse::<f64>());
+        match input.trim().parse::<f64>() {
+             Err(_) => println!("Please input a floating point!"),
+             Ok(_) => break,
+        }
+    }
+
+    match write::generate(&input) {
+        Err(_) => panic!("death"),
+        Ok(_) => {},
+    }
+}
+
+
+fn get_query() {}
