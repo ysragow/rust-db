@@ -1,6 +1,8 @@
 use std::io;
 mod query;
 mod write;
+mod index;
+mod parse;
 
 fn main() {
     println!("Welcome to a simple database!");
