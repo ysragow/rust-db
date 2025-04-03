@@ -1,17 +1,14 @@
 use arrow::array::Array;
 use arrow::array::{RecordBatch, StringArray, Date32Array, Int32Array, Float32Array};
-use arrow::datatypes::Schema;
 use chrono;
 use chrono::Datelike;
 use failure::ensure;
+use parquet::arrow::ArrowWriter;
 use std::convert::From;
 use std::env;
-use std::error::Error;
 use std::fmt;
 use std::fs::{File, remove_file};
 use std::io::{BufReader, BufRead};
-use parquet::arrow::ArrowWriter; 
-use std::path::Path;
 use std::process::Command;
 use std::result::Result;
 use std::str;
@@ -194,7 +191,10 @@ pub fn generate(scale: &str) -> std::io::Result<()> {
         if let Err(why) = tbl_to_parquet(i) {
             panic_on_write_error(why);
         } else {
-            remove_file(&("data/".to_string() + &FILES[i] + ".tbl"));
+            let fpath = "data/".to_string() + &FILES[i] + ".tbl";
+            if let Err(_) = remove_file(&fpath){
+                println!("Failed to delete file {fpath}.")
+            };
         }
     };
     Ok(())
@@ -224,7 +224,7 @@ fn dbgen(scale: &str) -> Result<(), WriteError> {
         Ok(x) => x
     };
     path.push("data");
-    env::set_current_dir(path.as_path());
+    env::set_current_dir(path.as_path()).expect("Failed to set directory.  Aborting.");
     
     // Execute dbgen
     let output = match Command::new("../dbgen/dbgen")
@@ -236,15 +236,16 @@ fn dbgen(scale: &str) -> Result<(), WriteError> {
     };
     
     // Switch back to the prior directory
-    env::set_current_dir(match path.parent() {Some(parent) => parent, None => panic!("what")});
+    env::set_current_dir(match path.parent() {Some(parent) => parent, None => panic!("what")})
+        .expect("Failed to set directory.  Aborting.");
     
     // If dbgen did not work, then return an error.
     let std_out = output.stderr;
-    for FILE in FILES {
-        match File::open("data/".to_owned() + &FILE + ".tbl") {
+    for file_path in FILES {
+        match File::open("data/".to_owned() + &file_path + ".tbl") {
             Err(_) => return match str::from_utf8(&std_out) {
                 Err(_) => Err(WriteError::BadOutput),
-                Ok(outstr) => Err(WriteError::FileNotFound(&FILE, outstr.to_string())),
+                Ok(outstr) => Err(WriteError::FileNotFound(&file_path, outstr.to_string())),
             },
             Ok(_) => {},
         };
@@ -308,7 +309,7 @@ fn tbl_to_parquet<'a>(input_index: usize) -> Result<(), WriteError<'a>> {
         let mut row_count = 0;
         while row_count < BLOCK_SIZE {
             row_count = row_count + 1;
-            let mut tuple_wrapped = tuple_iter.next();
+            let tuple_wrapped = tuple_iter.next();
             let tuple = match tuple_wrapped {
                 Some(t1) => match t1 {
                     Err(_) => {
@@ -322,7 +323,7 @@ fn tbl_to_parquet<'a>(input_index: usize) -> Result<(), WriteError<'a>> {
                     break;
                 }
             };
-            let tup_len = tuple.len();
+            // let tup_len = tuple.len();
             // println!("Reading line {row_count}, of length {tup_len}");
             let tuple_iter = tuple.split("|");
             for (i, datapoint) in tuple_iter.enumerate() {
@@ -340,7 +341,7 @@ fn tbl_to_parquet<'a>(input_index: usize) -> Result<(), WriteError<'a>> {
         let mut arc_output = Vec::<(String, Arc<(dyn Array)>)>::new();
         for (name, column) in output {
             match column {
-                Column::ChaCol(v, size) => {
+                Column::ChaCol(v, _) => {
                     let new_array = StringArray::from_iter_values(v);
                     arc_output.push((name.to_owned(), Arc::new(new_array)));
                 },
@@ -359,13 +360,15 @@ fn tbl_to_parquet<'a>(input_index: usize) -> Result<(), WriteError<'a>> {
             };
         }
         let batch = RecordBatch::try_from_iter(arc_output).expect("Record batch failed");
-        let mut pq_name = file_name.to_string() + &block_count.to_string() + ".parquet";
+        let pq_name = file_name.to_string() + &block_count.to_string() + ".parquet";
 
         println!("Writing to file {pq_name}...");
         let file = match File::create_new(&pq_name) {
             Ok(f) => f,
             Err(_) => {
-                remove_file(&pq_name);
+                if let Err(_) = remove_file(&pq_name){
+                    println!("Failed to delete file {pq_name}.")
+                };
                 File::create_new(&pq_name).expect("It should work this time...")
             },
         };
